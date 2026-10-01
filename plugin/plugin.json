@@ -1,6 +1,6 @@
 [
   {
-    "id": "$skylane00",
+    "id": "$skylane-wanets",
     "type": "script",
     "script": "skylane.lua"
   }
