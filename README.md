@@ -1,5 +1,7 @@
 <img src="https://github.com/WanetsCode/SkyLANe/blob/main/assets/SkyLANe_logo.png"></img>
 
+note: skyLANe is a little tool intended for quick LAN contributions and plays, it is different to the official multiplayer feature. Since its small its intended for parties for up to 5 people (can be exceeded) and therefore donesnt contain features like protection zones, everybody can do everything in your city if you allow them. Banning and kicking are not implemented since you can just ban them from the hotspot
+
 ---
 
 ## Setup:
