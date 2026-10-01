@@ -1,0 +1,7 @@
+[
+  {
+    "id": "$skylane00",
+    "type": "script",
+    "script": "skylane.lua"
+  }
+]
