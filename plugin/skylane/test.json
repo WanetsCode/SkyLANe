@@ -1,7 +1,7 @@
 [
   {
     "id": "$skylane.icon",
-    "type": "object",
+    "type": "animation",
     "frames": [
       {
         "bmp": "connection_icon.png"
