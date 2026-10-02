@@ -1,0 +1,16 @@
+[
+  {
+    "id": "$skylane.icon",
+    "type": "object",
+    "frames": [
+      {
+        "bmp": "connection_icon.png"
+      }
+    ]
+  },
+  {
+    "id": "$skylane.script",
+    "type": "script",
+    "script": "skylane.lua"
+  }
+]
