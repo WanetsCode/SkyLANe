@@ -1,0 +1,40 @@
+[
+  // This is a sample plugin
+  // See https://forum.theotown.com/viewtopic.php?t=2965 for more information
+  {
+    // Id will be used to identify the building; use a unique string and don't change it afterwards
+    "id": "$sample.plugin.unique.id.res00",
+
+    // We want to define a residential level 1 building
+    "type": "residential",
+    "level": 1,
+
+    // Optional information about the author(s)
+    "author": "Lobby & theotheoderich",
+
+    // Tile size of the building
+    "width": 1,
+    "height": 1,
+
+    // Image of the building
+    "frames": [
+      {"bmp": "sample_bmp.png"}
+    ],
+
+    // Optional winter frames will be used in winter
+    "frames winter":[
+      {"bmp": "sample_winter_bmp.png"}
+    ],
+
+    // Add some lights
+    "animation":[
+      {"id":"1x2l", "x":9, "y":-4},
+      {"id":"1x2l", "x":20, "y":-2}
+    ],
+
+    // Add some smoke
+    "smoke": [
+      {"id": "$smoke07","x": 15,"y": -17}
+    ]
+  }
+]

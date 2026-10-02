@@ -1,7 +1,0 @@
-[
-  {
-    "id": "$skylane-wanets",
-    "type": "script",
-    "script": "skylane.lua"
-  }
-]

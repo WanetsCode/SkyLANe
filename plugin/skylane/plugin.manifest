@@ -1,0 +1,11 @@
+{
+  "id":"1b943fe6-b7cb-4453-bf0e-5e5c30cbfbc7",
+  "version":1,
+  "title":"SkyLANe",
+  "text":"Connecting cities together, locally",
+  "author":"Wanets",
+  "thumbnail":"sample_bmp.png",
+  "category":false,
+  "url":"https://github.com/WanetsCode/SkyLANe",
+  "once":true
+}
