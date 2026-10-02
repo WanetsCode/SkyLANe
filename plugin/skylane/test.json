@@ -5,6 +5,21 @@
     "frames": [
       {
         "bmp": "connection_icon.png"
+      },
+      {
+        "bmp": "connection_icon_red.png"
+      },
+      {
+        "bmp": "connection_icon_green.png"
+      },
+      {
+        "bmp": "connection_icon_green_verified.png"
+      },
+      {
+        "bmp": "connection_icon_red_error.png"
+      },
+      {
+        "bmp": "connection_icon_update.png"
       }
     ]
   },
