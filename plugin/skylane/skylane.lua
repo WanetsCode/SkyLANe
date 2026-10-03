@@ -3,23 +3,33 @@ local skyLaneButton
 local CONNECTION_DISCONNECTED = 1
 local CONNECTION_HOSTING = 2
 local CONNECTION_JOINING = 3
+local CONNECTION_CONNECTED = 4
+local CONNECTION_ERROR = 5
+local CONNECTION_UPDATE = 6
 
 local connectionState = CONNECTION_DISCONNECTED
 
 local STORAGE = TheoTown.getFileStorage()
-local WORLD_KEY = "skylane.world"
-local SYNC_INTERVAL = 1000
+
+local HOST_KEY = "skylane.test.host"
+local MESSAGE_KEY = "skylane.test.message"
+local MESSAGE_ID_KEY = "skylane.test.message.id"
+
+local SYNC_INTERVAL = 500
+local HOST_TIMEOUT = 3000
 
 local lastSync = 0
-local lastAppliedRevision = 0
-local worldRevision = 0
-local applyingWorld = false
+local lastMessageId = 0
+local lastSentMessageId = 0
 
 local iconDraft = Draft.getDraft("$skylane.icon")
 
 local disconnectedIcon = iconDraft:getFrame(1)
 local hostingIcon = iconDraft:getFrame(2)
 local joiningIcon = iconDraft:getFrame(3)
+local connectedIcon = iconDraft:getFrame(4)
+local errorIcon = iconDraft:getFrame(5)
+local updateIcon = iconDraft:getFrame(6)
 
 
 local function getDialogSize()
@@ -48,217 +58,30 @@ local function setConnectionState(state)
     elseif state == CONNECTION_JOINING then
         skyLaneButton:setIcon(joiningIcon)
 
+    elseif state == CONNECTION_CONNECTED then
+        skyLaneButton:setIcon(connectedIcon)
+
+    elseif state == CONNECTION_ERROR then
+        skyLaneButton:setIcon(errorIcon)
+
+    elseif state == CONNECTION_UPDATE then
+        skyLaneButton:setIcon(updateIcon)
+
     else
         skyLaneButton:setIcon(disconnectedIcon)
     end
 end
 
 
-local function makeWorldSnapshot()
-    local snapshot = {
-        version = 1,
-        cityId = City.getId(),
-        cityName = City.getName(),
-        width = City.getWidth(),
-        height = City.getHeight(),
-        buildings = {},
-        roads = {}
-    }
-
-    local buildingCount = City.countBuildings()
-
-    for i = 1, buildingCount do
-        local x, y = City.getBuilding(i)
-
-        if x and y then
-            local building = Tile.getBuilding(x, y)
-
-            if building then
-                local draft = building:getDraft()
-
-                if draft then
-                    snapshot.buildings[#snapshot.buildings + 1] = {
-                        id = draft:getId(),
-                        x = x,
-                        y = y,
-                        frame = building:getFrame()
-                    }
-                end
-            end
-        end
-    end
-
-    local roadCount = City.countRoads()
-
-    for i = 1, roadCount do
-        local x, y, level = City.getRoad(i)
-
-        if x and y and level then
-            local draft = Tile.getRoadDraft(x, y, level)
-
-            if draft then
-                snapshot.roads[#snapshot.roads + 1] = {
-                    id = draft:getId(),
-                    x = x,
-                    y = y,
-                    level = level,
-                    bridge = (Tile.getRoadBridgeType(x, y, level) or 0) ~= 0
-                }
-            end
-        end
-    end
-
-    return snapshot
-end
-
-
-local function saveWorld()
-    if applyingWorld or not City or not City.getId then
-        return
-    end
-
-    local snapshot = makeWorldSnapshot()
-
-    worldRevision = worldRevision + 1
-    snapshot.revision = worldRevision
-    snapshot.timestamp = Runtime.getTime()
-
-    STORAGE[WORLD_KEY] = snapshot
-end
-
-
-local function clearBuildings()
-    local positions = {}
-
-    local count = City.countBuildings()
-
-    for i = 1, count do
-        local x, y = City.getBuilding(i)
-
-        if x and y then
-            positions[#positions + 1] = {
-                x = x,
-                y = y
-            }
-        end
-    end
-
-    for i = 1, #positions do
-        Builder.remove(positions[i].x, positions[i].y)
-    end
-end
-
-
-local function clearRoads()
-    local positions = {}
-
-    local count = City.countRoads()
-
-    for i = 1, count do
-        local x, y, level = City.getRoad(i)
-
-        if x and y and level then
-            positions[#positions + 1] = {
-                x = x,
-                y = y,
-                level = level
-            }
-        end
-    end
-
-    for i = 1, #positions do
-        Builder.remove(
-            positions[i].x,
-            positions[i].y
-        )
-    end
-end
-
-
-local function applyWorld(snapshot)
-    if not snapshot or snapshot.version ~= 1 then
-        return
-    end
-
-    if snapshot.cityId ~= City.getId() then
-        return
-    end
-
-    applyingWorld = true
-
-    clearBuildings()
-    clearRoads()
-
-    if snapshot.roads then
-        for i = 1, #snapshot.roads do
-            local road = snapshot.roads[i]
-
-            Builder.buildRoad(
-                road.id,
-                road.x,
-                road.y,
-                road.x,
-                road.y,
-                road.level,
-                road.level,
-                road.bridge
-            )
-        end
-    end
-
-    if snapshot.buildings then
-        for i = 1, #snapshot.buildings do
-            local building = snapshot.buildings[i]
-
-            Builder.buildBuilding(
-                building.id,
-                building.x,
-                building.y,
-                building.frame
-            )
-        end
-    end
-
-    applyingWorld = false
-end
-
-
-local function syncWorld()
-    local now = Runtime.getTime()
-
-    if now - lastSync < SYNC_INTERVAL then
-        return
-    end
-
-    lastSync = now
-
-    if connectionState == CONNECTION_HOSTING then
-        saveWorld()
-
-    elseif connectionState == CONNECTION_JOINING then
-        local snapshot = STORAGE[WORLD_KEY]
-
-        if snapshot and snapshot.revision and snapshot.revision ~= lastAppliedRevision then
-            applyWorld(snapshot)
-            lastAppliedRevision = snapshot.revision
-        end
-    end
-end
-
-
-local function showServerCreated()
+local function showMessage(message)
     local width, height = getDialogSize()
 
     GUI.createDialog{
-        icon = hostingIcon,
+        icon = connectedIcon,
 
-        title = "Server Active | SkyLANe",
+        title = "Message | SkyLANe",
 
-        text =
-            "Your SkyLANe server is currently active.\n\n" ..
-            "This test host is continuously writing the city state " ..
-            "to shared SkyLANe storage so another TheoTown instance " ..
-            "on the same device can read it.",
+        text = message,
 
         width = width,
         height = height,
@@ -269,180 +92,172 @@ local function showServerCreated()
 end
 
 
-local function closeServer()
-    if connectionState ~= CONNECTION_HOSTING then
+local function sendMessage()
+    if connectionState ~= CONNECTION_HOSTING and
+       connectionState ~= CONNECTION_CONNECTED then
+        Debug.toast("Connect to a SkyLANe test session first")
         return
+    end
+
+    GUI.createRenameDialog{
+        icon = connectedIcon,
+
+        title = "Send Message | SkyLANe",
+
+        text = "Enter a message to send to the other TheoTown instance.",
+
+        value = "",
+
+        okText = "Send",
+        cancelText = "Cancel",
+
+        onOk = function(value)
+            if not value or value:len() == 0 then
+                Debug.toast("Message is empty")
+                return
+            end
+
+            local messageId = Runtime.getTime()
+
+            STORAGE[MESSAGE_KEY] = value
+            STORAGE[MESSAGE_ID_KEY] = messageId
+
+            lastSentMessageId = messageId
+            lastMessageId = messageId
+
+            Debug.toast("SkyLANe message sent")
+        end
+    }
+end
+
+
+local function showConnectionInfo()
+    local width, height = getDialogSize()
+
+    local text
+
+    if connectionState == CONNECTION_HOSTING then
+        text =
+            "This TheoTown instance is hosting the local test session.\n\n" ..
+            "The host heartbeat is being written to shared file storage."
+
+    elseif connectionState == CONNECTION_CONNECTED then
+        text =
+            "Connected to the local test host.\n\n" ..
+            "Messages are exchanged through shared file-backed storage."
+
+    elseif connectionState == CONNECTION_JOINING then
+        text =
+            "Looking for the local test host..."
+
+    elseif connectionState == CONNECTION_ERROR then
+        text =
+            "The SkyLANe test connection reported an error."
+
+    else
+        text =
+            "No SkyLANe test connection is active."
+    end
+
+    GUI.createDialog{
+        icon =
+            connectionState == CONNECTION_HOSTING and hostingIcon or
+            connectionState == CONNECTION_CONNECTED and connectedIcon or
+            connectionState == CONNECTION_JOINING and joiningIcon or
+            connectionState == CONNECTION_ERROR and errorIcon or
+            disconnectedIcon,
+
+        title = "Connection | SkyLANe",
+
+        text = text,
+
+        width = width,
+        height = height,
+
+        closeable = true,
+        pause = true
+    }
+end
+
+
+local function closeConnection()
+    if connectionState == CONNECTION_HOSTING then
+        STORAGE[HOST_KEY] = 0
     end
 
     setConnectionState(CONNECTION_DISCONNECTED)
 
-    Debug.toast("SkyLANe server closed")
-
-    local width, height = getDialogSize()
-
-    GUI.createDialog{
-        icon = disconnectedIcon,
-
-        title = "Server Closed | SkyLANe",
-
-        text =
-            "The SkyLANe host has stopped publishing the city state.",
-
-        width = width,
-        height = height,
-
-        closeable = true,
-        pause = true
-    }
+    Debug.toast("SkyLANe disconnected")
 end
 
 
 local function hostServer()
     if connectionState == CONNECTION_HOSTING then
-        closeServer()
+        closeConnection()
         return
     end
 
-    worldRevision = 0
+    local now = Runtime.getTime()
+
+    STORAGE[HOST_KEY] = now
+
+    lastMessageId = 0
+    lastSentMessageId = 0
     lastSync = 0
 
     setConnectionState(CONNECTION_HOSTING)
 
-    saveWorld()
-
     Debug.toast("SkyLANe test host started")
-
-    showServerCreated()
 end
 
 
 local function joinServer()
-    local snapshot = STORAGE[WORLD_KEY]
+    local hostTime = STORAGE[HOST_KEY]
+    local now = Runtime.getTime()
 
-    if not snapshot then
-        Debug.toast("No SkyLANe host snapshot found")
+    if not hostTime or now - hostTime > HOST_TIMEOUT then
+        setConnectionState(CONNECTION_ERROR)
+        Debug.toast("No SkyLANe test host found")
         return
     end
 
-    if snapshot.cityId ~= City.getId() then
-        Debug.toast("SkyLANe city mismatch")
-        return
-    end
-
-    lastAppliedRevision = 0
+    lastMessageId = 0
+    lastSentMessageId = 0
     lastSync = 0
 
-    setConnectionState(CONNECTION_JOINING)
-
-    local width, height = getDialogSize()
-
-    GUI.createDialog{
-        icon = joiningIcon,
-
-        title = "Join Server | SkyLANe",
-
-        text =
-            "Connected to the local SkyLANe test host.\n\n" ..
-            "The other TheoTown instance is publishing its city " ..
-            "state through the shared file-backed storage.",
-
-        width = width,
-        height = height,
-
-        closeable = true,
-        pause = true
-    }
+    setConnectionState(CONNECTION_CONNECTED)
 
     Debug.toast("SkyLANe test client connected")
 end
 
 
-local function showServerInfo()
-    if connectionState == CONNECTION_HOSTING then
-        showServerCreated()
-
-        return
-    end
-
-    local width, height = getDialogSize()
-
-    GUI.createDialog{
-        icon = disconnectedIcon,
-
-        title = "SkyLANe",
-
-        text =
-            "You are not currently connected to a SkyLANe test host.\n\n" ..
-            "Host one TheoTown instance, then join from the other instance.",
-
-        width = width,
-        height = height,
-
-        closeable = true,
-        pause = true
-    }
-end
-
-
 local function showSkyLANeMenu()
 
-    if connectionState == CONNECTION_HOSTING then
+    if connectionState == CONNECTION_HOSTING or
+       connectionState == CONNECTION_CONNECTED then
 
         GUI.createMenu{
             title = "SkyLANe",
-            text = "Local test host is active.",
+
+            text =
+                connectionState == CONNECTION_HOSTING
+                    and "Local test host is active."
+                    or "Connected to the local test host.",
 
             actions = {
                 {
-                    text = "Server information",
+                    text = "Send message",
 
                     onClick = function()
-                        showServerInfo()
+                        sendMessage()
                     end
                 },
 
                 {
-                    text = "Close server",
-
-                    onClick = function()
-                        closeServer()
-                    end
-                }
-            }
-        }
-
-        return
-    end
-
-
-    if connectionState == CONNECTION_JOINING then
-
-        GUI.createMenu{
-            title = "SkyLANe",
-            text = "Connected to the local test host.",
-
-            actions = {
-                {
                     text = "Connection information",
 
                     onClick = function()
-                        local width, height = getDialogSize()
-
-                        GUI.createDialog{
-                            icon = joiningIcon,
-
-                            title = "Connected | SkyLANe",
-
-                            text =
-                                "This instance is reading the host city's " ..
-                                "latest snapshot from shared storage.",
-
-                            width = width,
-                            height = height,
-
-                            closeable = true,
-                            pause = true
-                        }
+                        showConnectionInfo()
                     end
                 },
 
@@ -450,9 +265,7 @@ local function showSkyLANeMenu()
                     text = "Disconnect",
 
                     onClick = function()
-                        setConnectionState(CONNECTION_DISCONNECTED)
-
-                        Debug.toast("SkyLANe test client disconnected")
+                        closeConnection()
                     end
                 }
             }
@@ -465,12 +278,11 @@ local function showSkyLANeMenu()
     GUI.createMenu{
         title = "SkyLANe",
 
-        text =
-            "Local same-device multiplayer test.",
+        text = "Local same-device file messaging test.",
 
         actions = {
             {
-                text = "Host a server",
+                text = "Host a test session",
 
                 onClick = function()
                     hostServer()
@@ -478,7 +290,7 @@ local function showSkyLANeMenu()
             },
 
             {
-                text = "Join a server",
+                text = "Join a test session",
 
                 onClick = function()
                     joinServer()
@@ -486,6 +298,50 @@ local function showSkyLANeMenu()
             }
         }
     }
+end
+
+
+local function syncTestConnection()
+    local now = Runtime.getTime()
+
+    if now - lastSync < SYNC_INTERVAL then
+        return
+    end
+
+    lastSync = now
+
+    if connectionState == CONNECTION_HOSTING then
+        STORAGE[HOST_KEY] = now
+
+    elseif connectionState == CONNECTION_CONNECTED then
+        local hostTime = STORAGE[HOST_KEY]
+
+        if not hostTime or now - hostTime > HOST_TIMEOUT then
+            setConnectionState(CONNECTION_ERROR)
+            Debug.toast("SkyLANe host connection lost")
+            return
+        end
+    end
+
+
+    if connectionState ~= CONNECTION_HOSTING and
+       connectionState ~= CONNECTION_CONNECTED then
+        return
+    end
+
+    local messageId = STORAGE[MESSAGE_ID_KEY]
+
+    if messageId and messageId ~= lastMessageId then
+        local message = STORAGE[MESSAGE_KEY]
+
+        if message then
+            lastMessageId = messageId
+
+            if messageId ~= lastSentMessageId then
+                showMessage(message)
+            end
+        end
+    end
 end
 
 
@@ -516,5 +372,5 @@ end
 
 
 function script:update()
-    syncWorld()
+    syncTestConnection()
 end
