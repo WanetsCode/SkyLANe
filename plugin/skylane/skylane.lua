@@ -16,7 +16,6 @@ local MESSAGE_KEY = "skylane.test.message"
 local MESSAGE_ID_KEY = "skylane.test.message.id"
 
 local SYNC_INTERVAL = 500
-local HOST_TIMEOUT = 3000
 
 local lastSync = 0
 local lastMessageId = 0
@@ -28,7 +27,6 @@ local disconnectedIcon = iconDraft:getFrame(1)
 local hostingIcon = iconDraft:getFrame(2)
 local joiningIcon = iconDraft:getFrame(3)
 local connectedIcon = iconDraft:getFrame(4)
-local errorIcon = iconDraft:getFrame(5)
 local updateIcon = iconDraft:getFrame(6)
 
 
@@ -62,7 +60,8 @@ local function setConnectionState(state)
         skyLaneButton:setIcon(connectedIcon)
 
     elseif state == CONNECTION_ERROR then
-        skyLaneButton:setIcon(errorIcon)
+        -- Connection errors use the update icon.
+        skyLaneButton:setIcon(updateIcon)
 
     elseif state == CONNECTION_UPDATE then
         skyLaneButton:setIcon(updateIcon)
@@ -135,37 +134,43 @@ local function showConnectionInfo()
     local width, height = getDialogSize()
 
     local text
+    local icon
 
     if connectionState == CONNECTION_HOSTING then
         text =
             "This TheoTown instance is hosting the local test session.\n\n" ..
-            "The host heartbeat is being written to shared file storage."
+            "The host marker is stored in shared file storage."
+
+        icon = hostingIcon
 
     elseif connectionState == CONNECTION_CONNECTED then
         text =
             "Connected to the local test host.\n\n" ..
             "Messages are exchanged through shared file-backed storage."
 
+        icon = connectedIcon
+
     elseif connectionState == CONNECTION_JOINING then
         text =
             "Looking for the local test host..."
 
+        icon = joiningIcon
+
     elseif connectionState == CONNECTION_ERROR then
         text =
-            "The SkyLANe test connection reported an error."
+            "The SkyLANe test connection could not be established."
+
+        icon = updateIcon
 
     else
         text =
             "No SkyLANe test connection is active."
+
+        icon = disconnectedIcon
     end
 
     GUI.createDialog{
-        icon =
-            connectionState == CONNECTION_HOSTING and hostingIcon or
-            connectionState == CONNECTION_CONNECTED and connectedIcon or
-            connectionState == CONNECTION_JOINING and joiningIcon or
-            connectionState == CONNECTION_ERROR and errorIcon or
-            disconnectedIcon,
+        icon = icon,
 
         title = "Connection | SkyLANe",
 
@@ -182,7 +187,7 @@ end
 
 local function closeConnection()
     if connectionState == CONNECTION_HOSTING then
-        STORAGE[HOST_KEY] = 0
+        STORAGE[HOST_KEY] = nil
     end
 
     setConnectionState(CONNECTION_DISCONNECTED)
@@ -197,9 +202,9 @@ local function hostServer()
         return
     end
 
-    local now = Runtime.getTime()
-
-    STORAGE[HOST_KEY] = now
+    -- Use a simple persistent marker for this test.
+    -- There is deliberately no timeout/heartbeat yet.
+    STORAGE[HOST_KEY] = true
 
     lastMessageId = 0
     lastSentMessageId = 0
@@ -212,10 +217,11 @@ end
 
 
 local function joinServer()
-    local hostTime = STORAGE[HOST_KEY]
-    local now = Runtime.getTime()
+    setConnectionState(CONNECTION_JOINING)
 
-    if not hostTime or now - hostTime > HOST_TIMEOUT then
+    local host = STORAGE[HOST_KEY]
+
+    if host ~= true then
         setConnectionState(CONNECTION_ERROR)
         Debug.toast("No SkyLANe test host found")
         return
@@ -309,20 +315,6 @@ local function syncTestConnection()
     end
 
     lastSync = now
-
-    if connectionState == CONNECTION_HOSTING then
-        STORAGE[HOST_KEY] = now
-
-    elseif connectionState == CONNECTION_CONNECTED then
-        local hostTime = STORAGE[HOST_KEY]
-
-        if not hostTime or now - hostTime > HOST_TIMEOUT then
-            setConnectionState(CONNECTION_ERROR)
-            Debug.toast("SkyLANe host connection lost")
-            return
-        end
-    end
-
 
     if connectionState ~= CONNECTION_HOSTING and
        connectionState ~= CONNECTION_CONNECTED then
