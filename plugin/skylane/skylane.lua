@@ -9,17 +9,19 @@ local CONNECTION_UPDATE = 6
 
 local connectionState = CONNECTION_DISCONNECTED
 
-local STORAGE = TheoTown.getFileStorage()
-
-local HOST_KEY = "skylane.test.host"
-local MESSAGE_KEY = "skylane.test.message"
-local MESSAGE_ID_KEY = "skylane.test.message.id"
+-- The external SkyLANe test app writes this file into the plugin directory.
+-- It must return a table such as:
+-- return {
+--     id = 1,
+--     type = "message",
+--     text = "Hello from another instance"
+-- }
+local UPDATE_FILE = "skylane.update.lua"
 
 local SYNC_INTERVAL = 500
 
 local lastSync = 0
-local lastMessageId = 0
-local lastSentMessageId = 0
+local lastUpdateId = 0
 
 local iconDraft = Draft.getDraft("$skylane.icon")
 
@@ -60,7 +62,7 @@ local function setConnectionState(state)
         skyLaneButton:setIcon(connectedIcon)
 
     elseif state == CONNECTION_ERROR then
-        -- Connection errors use the update icon.
+        -- Connection/update errors use the update icon.
         skyLaneButton:setIcon(updateIcon)
 
     elseif state == CONNECTION_UPDATE then
@@ -91,7 +93,73 @@ local function showMessage(message)
 end
 
 
-local function sendMessage()
+local function applyUpdate(update)
+    if type(update) ~= "table" then
+        setConnectionState(CONNECTION_ERROR)
+        Debug.toast("SkyLANe update is not a table")
+        return false
+    end
+
+    if type(update.id) ~= "number" then
+        setConnectionState(CONNECTION_ERROR)
+        Debug.toast("SkyLANe update has no valid ID")
+        return false
+    end
+
+    if update.id <= lastUpdateId then
+        return true
+    end
+
+    if update.type == "message" then
+        if type(update.text) ~= "string" then
+            setConnectionState(CONNECTION_ERROR)
+            Debug.toast("SkyLANe message update is invalid")
+            return false
+        end
+
+        lastUpdateId = update.id
+
+        if connectionState == CONNECTION_HOSTING or
+           connectionState == CONNECTION_JOINING then
+            setConnectionState(CONNECTION_CONNECTED)
+        end
+
+        showMessage(update.text)
+
+        return true
+    end
+
+    setConnectionState(CONNECTION_ERROR)
+    Debug.toast("SkyLANe update type not supported: " .. tostring(update.type))
+
+    return false
+end
+
+
+local function readUpdateFile()
+    -- dofile executes the externally generated Lua update and returns
+    -- whatever value the update script returns.
+    local ok, update = pcall(dofile, UPDATE_FILE)
+
+    if not ok then
+        -- A missing update file is normal; do not show an error for it.
+        if tostring(update):find("cannot open", 1, true) or
+           tostring(update):find("No such file", 1, true) then
+            return
+        end
+
+        setConnectionState(CONNECTION_ERROR)
+        Debug.toast("SkyLANe update error: " .. tostring(update))
+        return
+    end
+
+    if update ~= nil then
+        applyUpdate(update)
+    end
+end
+
+
+local function sendMessageTest()
     if connectionState ~= CONNECTION_HOSTING and
        connectionState ~= CONNECTION_CONNECTED then
         Debug.toast("Connect to a SkyLANe test session first")
@@ -101,9 +169,12 @@ local function sendMessage()
     GUI.createRenameDialog{
         icon = connectedIcon,
 
-        title = "Send Message | SkyLANe",
+        title = "Generate Message | SkyLANe",
 
-        text = "Enter a message to send to the other TheoTown instance.",
+        text =
+            "Enter a test message.\n\n" ..
+            "The external SkyLANe app should turn this into " ..
+            "skylane.update.lua for the other instance.",
 
         value = "",
 
@@ -116,15 +187,9 @@ local function sendMessage()
                 return
             end
 
-            local messageId = Runtime.getTime()
-
-            STORAGE[MESSAGE_KEY] = value
-            STORAGE[MESSAGE_ID_KEY] = messageId
-
-            lastSentMessageId = messageId
-            lastMessageId = messageId
-
-            Debug.toast("SkyLANe message sent")
+            -- This is deliberately only a test notification.
+            -- The TheoTown plugin does not write files itself.
+            Debug.toast("Message queued for the SkyLANe app")
         end
     }
 end
@@ -138,27 +203,28 @@ local function showConnectionInfo()
 
     if connectionState == CONNECTION_HOSTING then
         text =
-            "This TheoTown instance is hosting the local test session.\n\n" ..
-            "The host marker is stored in shared file storage."
+            "SkyLANe test host is active.\n\n" ..
+            "Waiting for generated Lua updates."
 
         icon = hostingIcon
 
     elseif connectionState == CONNECTION_CONNECTED then
         text =
-            "Connected to the local test host.\n\n" ..
-            "Messages are exchanged through shared file-backed storage."
+            "Connected to the SkyLANe test session.\n\n" ..
+            "Updates are loaded from skylane.update.lua."
 
         icon = connectedIcon
 
     elseif connectionState == CONNECTION_JOINING then
         text =
-            "Looking for the local test host..."
+            "Waiting for the SkyLANe update source..."
 
         icon = joiningIcon
 
     elseif connectionState == CONNECTION_ERROR then
         text =
-            "The SkyLANe test connection could not be established."
+            "A SkyLANe update or connection error occurred.\n\n" ..
+            "The update icon indicates the error state."
 
         icon = updateIcon
 
@@ -186,10 +252,6 @@ end
 
 
 local function closeConnection()
-    if connectionState == CONNECTION_HOSTING then
-        STORAGE[HOST_KEY] = nil
-    end
-
     setConnectionState(CONNECTION_DISCONNECTED)
 
     Debug.toast("SkyLANe disconnected")
@@ -202,38 +264,22 @@ local function hostServer()
         return
     end
 
-    -- Use a simple persistent marker for this test.
-    -- There is deliberately no timeout/heartbeat yet.
-    STORAGE[HOST_KEY] = true
-
-    lastMessageId = 0
-    lastSentMessageId = 0
+    lastUpdateId = 0
     lastSync = 0
 
     setConnectionState(CONNECTION_HOSTING)
 
-    Debug.toast("SkyLANe test host started")
+    Debug.toast("SkyLANe test host ready")
 end
 
 
 local function joinServer()
     setConnectionState(CONNECTION_JOINING)
 
-    local host = STORAGE[HOST_KEY]
-
-    if host ~= true then
-        setConnectionState(CONNECTION_ERROR)
-        Debug.toast("No SkyLANe test host found")
-        return
-    end
-
-    lastMessageId = 0
-    lastSentMessageId = 0
+    lastUpdateId = 0
     lastSync = 0
 
-    setConnectionState(CONNECTION_CONNECTED)
-
-    Debug.toast("SkyLANe test client connected")
+    Debug.toast("SkyLANe test client waiting for updates")
 end
 
 
@@ -248,14 +294,14 @@ local function showSkyLANeMenu()
             text =
                 connectionState == CONNECTION_HOSTING
                     and "Local test host is active."
-                    or "Connected to the local test host.",
+                    or "Connected to the local test session.",
 
             actions = {
                 {
-                    text = "Send message",
+                    text = "Generate message",
 
                     onClick = function()
-                        sendMessage()
+                        sendMessageTest()
                     end
                 },
 
@@ -284,7 +330,7 @@ local function showSkyLANeMenu()
     GUI.createMenu{
         title = "SkyLANe",
 
-        text = "Local same-device file messaging test.",
+        text = "Lua-file update test.",
 
         actions = {
             {
@@ -307,7 +353,7 @@ local function showSkyLANeMenu()
 end
 
 
-local function syncTestConnection()
+local function syncUpdates()
     local now = Runtime.getTime()
 
     if now - lastSync < SYNC_INTERVAL then
@@ -317,23 +363,12 @@ local function syncTestConnection()
     lastSync = now
 
     if connectionState ~= CONNECTION_HOSTING and
+       connectionState ~= CONNECTION_JOINING and
        connectionState ~= CONNECTION_CONNECTED then
         return
     end
 
-    local messageId = STORAGE[MESSAGE_ID_KEY]
-
-    if messageId and messageId ~= lastMessageId then
-        local message = STORAGE[MESSAGE_KEY]
-
-        if message then
-            lastMessageId = messageId
-
-            if messageId ~= lastSentMessageId then
-                showMessage(message)
-            end
-        end
-    end
+    readUpdateFile()
 end
 
 
@@ -364,5 +399,5 @@ end
 
 
 function script:update()
-    syncTestConnection()
+    syncUpdates()
 end
